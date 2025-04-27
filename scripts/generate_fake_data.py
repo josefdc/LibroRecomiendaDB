@@ -68,12 +68,17 @@ def generate_data():
         # 1. Crear o Verificar Usuarios Falsos
         logger.info(f"--- Fase 1: Creando/Verificando {NUM_FAKE_USERS} Usuarios Falsos ---")
         for i in range(NUM_FAKE_USERS):
-            # Generar datos de usuario
-            first_name = fake.first_name().lower().replace("'", "") # Evitar apóstrofes
-            last_name = fake.last_name().lower().replace("'", "")
-            domain = fake.domain_name()
+            # --- Comenta o borra estas líneas ---
+            # first_name = fake.first_name().lower().replace("'", "") # Evitar apóstrofes
+            # last_name = fake.last_name().lower().replace("'", "")
+            # domain = fake.domain_name()
             # Construir email más realista y único
-            fake_email = f"{first_name}.{last_name}{random.randint(1,999)}@{domain}"
+            # fake_email = f"{first_name}.{last_name}{random.randint(1,999)}@{domain}"
+
+            # --- Usa esta línea en su lugar ---
+            fake_email = fake.safe_email()
+            # Opcional: puedes añadir un log para ver qué genera
+            # logger.debug(f"Generated safe email: {fake_email}")
 
             # Verificar si ya existe en la BD
             existing_user = get_user_by_email(db, email=fake_email)
