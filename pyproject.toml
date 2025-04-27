@@ -4,4 +4,19 @@ version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = [
+    "alembic>=1.15.2",
+    "fastapi>=0.115.12",
+    "httpx>=0.28.1",
+    "langchain>=0.3.24",
+    "langgraph>=0.3.34",
+    "openai>=1.76.0",
+    "passlib[bcrypt]>=1.7.4",
+    "psycopg2-binary>=2.9.10",
+    "pydantic[email]>=2.11.3",
+    "pydantic-settings>=2.9.1",
+    "python-dotenv>=1.1.0",
+    "sqlalchemy>=2.0.40",
+    "streamlit>=1.44.1",
+    "uvicorn[standard]>=0.34.2",
+]
