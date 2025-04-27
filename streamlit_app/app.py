@@ -1,375 +1,223 @@
 # streamlit_app/app.py
 import streamlit as st
 import pandas as pd
-from sqlalchemy.orm import Session
-from sqlalchemy import distinct, func # Necesitamos distinct y func
 import time
-import types
+from sqlalchemy.orm import Session
 
-# --- Importaciones Adicionales ---
-from librorecomienda.schemas.user import UserCreate
-from librorecomienda.crud.crud_user import get_user_by_email, create_user
-from librorecomienda.core.security import verify_password
-# Asegúrate que SessionLocal esté importado
+# Importaciones del proyecto (ajusta las rutas según tu estructura)
 from librorecomienda.db.session import SessionLocal
+from librorecomienda.models.book import Book
+from librorecomienda.models.user import User # Asegúrate de importar User
+from librorecomienda.schemas.user import UserCreate
+from librorecomienda.schemas.review import ReviewCreate
+from librorecomienda.crud import create_user, get_user_by_email, create_review, get_reviews_for_book_with_user, get_users # Importar get_users
+from librorecomienda.core.security import verify_password, get_password_hash
+from librorecomienda.core.config import settings # Importar settings
 
-# --- Importaciones de la Aplicación ---
-try:
-    from librorecomienda.models.book import Book
-    MODELS_LOADED = True
-except ImportError as e:
-    st.error(f"Error importando módulos: {e}. Ejecuta 'uv pip install -e .'?")
-    MODELS_LOADED = False
-except Exception as e:
-     st.error(f"Error inesperado en importación: {e}")
-     MODELS_LOADED = False
-
-# --- Inicialización de Session State ---
+# --- Inicialización del Estado de Sesión ---
 if 'logged_in' not in st.session_state:
     st.session_state['logged_in'] = False
     st.session_state['user_email'] = None
     st.session_state['user_id'] = None
+    st.session_state['is_admin'] = False # <-- Añadir esta línea
 
-# --- Configuración de la Página ---
-st.set_page_config(
-    page_title="LibroRecomienda",
-    page_icon="📚",
-    layout="wide", # Usar ancho completo
-    initial_sidebar_state="expanded" # Mostrar sidebar por defecto
-)
+# ... (resto de inicializaciones si las hay) ...
 
-# --- Funciones Cacheadas ---
-@st.cache_data(ttl="10m")
-def load_books_from_db():
-    """Carga todos los libros de la BD. Cacheable."""
-    db: Session | None = None
-    try:
-        db = SessionLocal()
-        books_result = db.query(
-            Book.id,
-            Book.title,
-            Book.author,
-            Book.genre,
-            Book.average_rating,
-            Book.description,
-            Book.cover_image_url
-        ).order_by(Book.id).all()
+# --- Funciones Auxiliares (si las tienes) ---
+# ...
 
-        books_data = [
-            types.SimpleNamespace(
-                id=row.id,
-                title=row.title,
-                author=row.author,
-                genre=row.genre,
-                average_rating=row.average_rating,
-                description=row.description,
-                cover_image_url=row.cover_image_url
-            )
-            for row in books_result
-        ]
-        return books_data
-    except Exception as e:
-        st.error(f"Error al cargar libros: {e}")
-        return []
-    finally:
-        if db:
-            db.close()
+# --- Barra Lateral: Login / Registro / Logout ---
+st.sidebar.title("Acceso")
 
-@st.cache_data(ttl="10m")
-def load_unique_genres_from_db():
-    """Carga los géneros únicos de la BD. Cacheable."""
-    db: Session | None = None
-    try:
-        db = SessionLocal()
-        # Label the distinct/lower expression explicitly
-        genres_query = db.query(distinct(func.lower(Book.genre)).label('distinct_genre')).\
-                        filter(Book.genre.isnot(None), Book.genre != '').\
-                        order_by(func.lower(Book.genre)).all()
-        # Access the result using the label
-        unique_genres = [row.distinct_genre for row in genres_query if row.distinct_genre]
-        return unique_genres
-    except Exception as e:
-        # Mostrar el error específico de géneros
-        st.error(f"Error al cargar géneros: {e}")
-        return []
-    finally:
-        if db:
-            db.close()
+if not st.session_state.get('logged_in', False):
+    login_tab, register_tab = st.sidebar.tabs(["Iniciar Sesión", "Registrarse"])
 
-# --- Carga de Datos ---
-if MODELS_LOADED:
-    with st.spinner("Cargando datos... ⏳"):
-        all_books = load_books_from_db()
-        unique_genres = load_unique_genres_from_db()
-else:
-    all_books, unique_genres = [], []
+    with login_tab:
+        with st.form("login_form"):
+            st.subheader("Iniciar Sesión")
+            login_email = st.text_input("Email", key="login_email")
+            login_password = st.text_input("Contraseña", type="password", key="login_password")
+            login_submitted = st.form_submit_button("Entrar")
 
-# --- Sidebar (Modificada para añadir Login/Registro/Logout) ---
-with st.sidebar:
-    st.header("👤 Acceso")
-
-    if not st.session_state['logged_in']:
-        login_tab, register_tab = st.tabs(["Iniciar Sesión", "Registrarse"])
-
-        # Pestaña de Login
-        with login_tab:
-            with st.form("login_form", clear_on_submit=True):
-                login_email = st.text_input("Email", key="login_email")
-                login_password = st.text_input("Contraseña", type="password", key="login_pass")
-                login_submitted = st.form_submit_button("Entrar")
-
-                if login_submitted:
-                    if not login_email or not login_password:
-                        st.warning("Por favor, introduce email y contraseña.")
-                    else:
-                        db: Session | None = None # Initialize db to None
-                        try:
-                            db = SessionLocal()
-                            user = get_user_by_email(db, email=login_email)
-                            if user and user.is_active and verify_password(login_password, user.hashed_password):
-                                st.session_state['logged_in'] = True
-                                st.session_state['user_email'] = user.email
-                                st.session_state['user_id'] = user.id
-                                st.success("¡Login exitoso!")
-                                # st.balloons() # ¡Celebración!
-                                time.sleep(1) # Pequeña pausa para ver el mensaje
-                                st.rerun() # Refresca la app
-                            else:
-                                st.error("Email o contraseña incorrectos, o usuario inactivo.")
-                        except Exception as e:
-                            st.error(f"Error durante el login: {e}")
-                        finally:
-                            if db:
-                                db.close()
-
-        # Pestaña de Registro
-        with register_tab:
-            with st.form("register_form", clear_on_submit=True):
-                reg_email = st.text_input("Email", key="reg_email")
-                reg_password = st.text_input("Contraseña", type="password", key="reg_pass")
-                reg_password_confirm = st.text_input("Confirmar Contraseña", type="password", key="reg_pass_conf")
-                register_submitted = st.form_submit_button("Crear Cuenta")
-
-                if register_submitted:
-                    if not reg_email or not reg_password or not reg_password_confirm:
-                        st.warning("Por favor, completa todos los campos.")
-                    elif reg_password != reg_password_confirm:
-                        st.error("Las contraseñas no coinciden.")
-                    else:
-                        db: Session | None = None # Initialize db to None
-                        try:
-                            db = SessionLocal()
-                            existing_user = get_user_by_email(db, email=reg_email)
-                            if existing_user:
-                                st.error("El email ya está registrado. Intenta iniciar sesión.")
-                            else:
-                                user_in = UserCreate(email=reg_email, password=reg_password)
-                                new_user = create_user(db=db, user=user_in)
-                                st.success(f"¡Usuario {new_user.email} registrado! Ahora puedes iniciar sesión.")
-                        except Exception as e:
-                            st.error(f"Error al registrar usuario: {e}")
-                        finally:
-                            if db:
-                                db.close()
-    else:
-        # Si ya está logueado
-        st.write(f"Bienvenido/a,")
-        st.subheader(st.session_state['user_email'])
-        if st.button("Cerrar Sesión"):
-            st.session_state['logged_in'] = False
-            st.session_state['user_email'] = None
-            st.session_state['user_id'] = None
-            st.success("Sesión cerrada.")
-            time.sleep(1)
-            st.rerun() # Refrescar
-
-    st.divider() # Separador antes de los filtros
-    st.header("🔍 Filtros y Orden")
-
-    # Filtro por Texto (existente)
-    search_term = st.text_input("Buscar por Título o Autor", key="search_bar")
-
-    # Filtro por Género (Nuevo)
-    # Usamos los géneros únicos cargados de la BD
-    # Convertimos a title() para que se vean mejor (ej. 'computers' -> 'Computers')
-    display_genres = sorted([g.title() for g in unique_genres])
-    selected_genres = st.multiselect(
-        "Filtrar por Género(s)",
-        options=display_genres,
-        key="genre_filter"
-    )
-
-    # Selección de Orden (Nuevo)
-    sort_options = {
-        "Título (A-Z)": ("title", False),
-        "Título (Z-A)": ("title", True),
-        "Autor (A-Z)": ("author", False),
-        "Autor (Z-A)": ("author", True),
-        "Rating (Mayor a Menor)": ("average_rating", True),
-        "Rating (Menor a Mayor)": ("average_rating", False),
-        "Por Defecto (ID)": ("id", False) # Opcional: volver al orden original
-    }
-    selected_sort_label = st.selectbox(
-        "Ordenar por",
-        options=list(sort_options.keys()),
-        key="sort_select"
-    )
-    sort_key, sort_reverse = sort_options[selected_sort_label]
-
-
-# --- Título Principal ---
-    sort_key, sort_reverse = sort_options[selected_sort_label]
-
-
-# --- Título Principal ---
-st.title("📚 Catálogo de Libros - LibroRecomienda")
-st.markdown("Explora los libros disponibles en nuestra base de datos.")
-st.divider()
-
-# --- Lógica Principal ---
-if not MODELS_LOADED:
-    st.warning("No se pueden cargar los modelos de la base de datos. La aplicación no puede continuar.")
-elif not all_books:
-    st.warning("No hay libros en la base de datos o hubo un error al cargarlos.")
-else:
-    # 1. Aplicar Filtro de Género
-    if selected_genres:
-         # Convertir géneros seleccionados a minúsculas para comparar
-         selected_genres_lower = [g.lower() for g in selected_genres]
-         working_list = [
-             book for book in all_books
-             if (book.genre or "").lower() in selected_genres_lower
-         ]
-    else:
-         # Si no se selecciona género, usar todos los libros
-         working_list = all_books
-
-    # 2. Aplicar Filtro de Texto (sobre la lista ya filtrada por género)
-    if search_term:
-         search_term_lower = search_term.lower()
-         filtered_books = [
-             book for book in working_list
-             if (search_term_lower in (book.title or "").lower()) or \
-                (search_term_lower in (book.author or "").lower())
-         ]
-         # Mensaje se mostrará después de ordenar
-    else:
-         filtered_books = working_list
-         # Mensaje se mostrará después de ordenar
-
-    # 3. Aplicar Ordenación (sobre la lista filtrada por género y texto)
-    # Usamos lambdas y manejamos valores None para evitar errores al ordenar
-    if sort_key == "title":
-         filtered_books.sort(key=lambda b: (b.title or "").lower(), reverse=sort_reverse)
-    elif sort_key == "author":
-         filtered_books.sort(key=lambda b: (b.author or "").lower(), reverse=sort_reverse)
-    elif sort_key == "average_rating":
-         # Poner los None al final si es ascendente, al principio si es descendente
-         none_sort_val = float('-inf') if sort_reverse else float('inf')
-         filtered_books.sort(key=lambda b: b.average_rating if b.average_rating is not None else none_sort_val, reverse=sort_reverse)
-    elif sort_key == "id": # Orden por defecto
-         filtered_books.sort(key=lambda b: b.id, reverse=sort_reverse)
-    # else: # No ordenar si es "Por Defecto (ID)" y reverse=False (ya están por ID de la query)
-
-    # Mostrar mensaje de cuántos libros se muestran *después* de filtrar y ordenar
-    if search_term or selected_genres:
-        st.info(f"Mostrando {len(filtered_books)} libros que coinciden con los filtros.")
-    else:
-        st.info(f"Mostrando los {len(filtered_books)} libros disponibles.")
-
-
-    # 4. Mostrar libros filtrados y ordenados
-    if not filtered_books:
-         st.warning("No se encontraron libros que coincidan con los filtros seleccionados.")
-    else:
-        col1, col2 = st.columns(2)
-        columns = [col1, col2]
-
-        for i, book in enumerate(filtered_books):
-            # Distribuir libros entre las columnas
-            with columns[i % len(columns)]:
-                with st.container(border=True):
-                    # Crear 2 columnas internas: una para la imagen, otra para el texto
-                    col_img, col_data = st.columns([1, 3])
-                    with col_img:
-                        if book.cover_image_url:
-                            st.image(book.cover_image_url, width=100)
-                        else:
-                            st.caption("No hay portada")
-                    with col_data:
-                        st.subheader(book.title or "Título no disponible")
-                        st.caption(f"Autor(es): {book.author or 'Desconocido'} | Género: {book.genre or 'N/A'}")
-                        rating_value = f"{book.average_rating:.1f} ⭐" if book.average_rating is not None else "N/A"
-                        st.metric(label="Rating Prom.", value=rating_value)
-
-                    # Expander para la descripción (fuera de las columnas internas, pero dentro del container)
-                    if book.description:
-                        with st.expander("Ver descripción"):
-                            st.write(book.description)
-                    else:
-                        st.write("_Sin descripción disponible._")
-
-                    # --- Sección para Añadir Reseña (Solo si está logueado) ---
-                    if st.session_state['logged_in']:
-                        st.divider() # Separador visual
-                        with st.form(key=f"review_form_{book.id}", clear_on_submit=True):
-                            st.write("**Deja tu reseña:**")
-                            user_rating = st.slider(
-                                "Calificación (Estrellas):",
-                                min_value=1, max_value=5, value=3, step=1,
-                                key=f"rating_{book.id}"
-                            )
-                            user_comment = st.text_area(
-                                "Comentario (Opcional):",
-                                key=f"comment_{book.id}"
-                            )
-                            submitted = st.form_submit_button("Enviar Reseña")
-
-                            if submitted:
-                                if st.session_state['user_id']:
-                                    review_in = ReviewCreate(rating=user_rating, comment=user_comment if user_comment else None)
-                                    db = SessionLocal()
-                                    try:
-                                        create_review(
-                                            db=db,
-                                            review=review_in,
-                                            user_id=st.session_state['user_id'],
-                                            book_id=book.id
-                                        )
-                                        st.success("¡Gracias por tu reseña!")
-                                        st.cache_data.clear() # Forzar recarga
-                                        time.sleep(1)
-                                        st.rerun()
-                                    except Exception as e:
-                                        st.error(f"Error al guardar la reseña: {e}")
-                                    finally:
-                                        db.close()
-                                else:
-                                    st.error("Error: No se pudo identificar al usuario.")
-
-                    # --- Mostrar Reseñas Existentes ---
-                    st.markdown("**Reseñas de otros usuarios:**")
-                    db = SessionLocal()
+            if login_submitted:
+                if not login_email or not login_password:
+                    st.warning("Por favor, introduce email y contraseña.")
+                else:
+                    db: Session | None = None
                     try:
-                        reviews_with_users = get_reviews_for_book_with_user(db, book_id=book.id, limit=10)
-                        if reviews_with_users:
-                            for review, user_email in reviews_with_users:
-                                with st.container(border=True):
-                                    rating_stars = "⭐" * review.rating + "☆" * (5 - review.rating)
-                                    reviewer = user_email if user_email else "Usuario Anónimo"
-                                    review_date = review.created_at.strftime('%Y-%m-%d %H:%M') if review.created_at else 'Fecha desconocida'
-                                    st.caption(f"{rating_stars} por **{reviewer}** el {review_date}")
-                                    if review.comment:
-                                        st.write(review.comment)
-                                    else:
-                                        st.write("_Sin comentario._")
+                        db = SessionLocal()
+                        user = get_user_by_email(db, email=login_email)
+                        if user and user.is_active and verify_password(login_password, user.hashed_password):
+                            st.session_state['logged_in'] = True
+                            st.session_state['user_email'] = user.email
+                            st.session_state['user_id'] = user.id
+                            # --- Añadir esta verificación ---
+                            if user.email in settings.list_admin_emails:
+                                st.session_state['is_admin'] = True
+                                st.toast("Acceso de administrador concedido.", icon="🔑")
+                            else:
+                                st.session_state['is_admin'] = False
+                            # --- Fin de la verificación ---
+                            st.success("¡Login exitoso!")
+                            time.sleep(1)
+                            # No cerrar db aquí si se necesita más adelante en la misma ejecución
+                            # db.close() # Mover close si es posible o gestionarlo al final
+                            st.rerun()
                         else:
-                            st.write("_Todavía no hay reseñas para este libro._")
+                            st.error("Email o contraseña incorrectos.")
                     except Exception as e:
-                        st.error(f"Error al cargar reseñas: {e}")
+                        st.error(f"Error durante el login: {e}")
                     finally:
-                        db.close()
+                        if db:
+                            db.close()
 
-# --- Pie de página (Opcional) ---
+    with register_tab:
+        with st.form("register_form"):
+            st.subheader("Registrarse")
+            register_email = st.text_input("Email", key="register_email")
+            register_password = st.text_input("Contraseña", type="password", key="register_password")
+            register_confirm_password = st.text_input("Confirmar Contraseña", type="password", key="register_confirm_password")
+            register_submitted = st.form_submit_button("Registrar")
+
+            if register_submitted:
+                if not register_email or not register_password or not register_confirm_password:
+                    st.warning("Por favor, rellena todos los campos.")
+                elif register_password != register_confirm_password:
+                    st.error("Las contraseñas no coinciden.")
+                else:
+                    db: Session | None = None
+                    try:
+                        db = SessionLocal()
+                        existing_user = get_user_by_email(db, email=register_email)
+                        if existing_user:
+                            st.error("Este email ya está registrado.")
+                        else:
+                            user_in = UserCreate(email=register_email, password=register_password)
+                            new_user = create_user(db=db, user=user_in)
+                            st.success(f"¡Usuario {new_user.email} registrado con éxito! Ahora puedes iniciar sesión.")
+                            time.sleep(2)
+                            # Podrías hacer login automático aquí o simplemente limpiar
+                    except Exception as e:
+                        st.error(f"Error durante el registro: {e}")
+                    finally:
+                        if db:
+                            db.close()
+else:
+    st.sidebar.write(f"Conectado como: {st.session_state['user_email']}")
+    if st.session_state.get('is_admin', False):
+        st.sidebar.markdown("**Rol:** Administrador 🔑")
+    if st.sidebar.button("Cerrar Sesión"):
+        st.session_state['logged_in'] = False
+        st.session_state['user_email'] = None
+        st.session_state['user_id'] = None
+        st.session_state['is_admin'] = False # <-- Añadir esta línea
+        st.success("Sesión cerrada.")
+        time.sleep(1)
+        st.rerun()
+
+# --- Título Principal --- 
+st.title("📚 LibroRecomienda")
+st.write("Encuentra y comparte reseñas de tus libros favoritos.")
+
+# --- Catálogo de Libros y Reseñas --- 
+# ... (código existente para mostrar libros, filtros, etc.) ...
+
+# Ejemplo de cómo podría ser la sección de mostrar libros (simplificado)
+db_main: Session | None = None
+try:
+    db_main = SessionLocal()
+    books = db_main.query(Book).order_by(Book.title).all()
+
+    if not books:
+        st.warning("No hay libros en la base de datos. Ejecuta `scripts/populate_db.py`.")
+    else:
+        st.header("Catálogo de Libros")
+        # Aquí iría tu lógica de filtros y búsqueda si la tienes
+
+        for book in books:
+            with st.expander(f"{book.title} ({book.author})"):
+                col1, col2 = st.columns([1, 3])
+                with col1:
+                    if book.cover_image_url:
+                        st.image(book.cover_image_url, width=150)
+                    else:
+                        st.caption("Sin portada")
+                with col2:
+                    st.subheader(f"{book.title}")
+                    st.write(f"**Autor:** {book.author}")
+                    st.write(f"**ISBN:** {book.isbn}")
+                    st.write(f"**Género:** {book.genre}")
+
+                # --- Sección de Reseñas --- 
+                st.markdown("#### Reseñas de otros usuarios")
+                reviews = get_reviews_for_book_with_user(db=db_main, book_id=book.id)
+                if reviews:
+                    for review_data in reviews:
+                        st.markdown(f"**{review_data.user_email}** ({'⭐'*review_data.rating}): *{review_data.comment or 'Sin comentario'}* - _{review_data.created_at.strftime('%Y-%m-%d')}_ ")
+                else:
+                    st.caption("Todavía no hay reseñas para este libro.")
+
+                # --- Añadir Reseña (Solo si está logueado) ---
+                if st.session_state.get('logged_in', False):
+                    st.markdown("#### Añade tu reseña")
+                    with st.form(key=f"review_form_{book.id}"):
+                        rating = st.slider("Puntuación", 1, 5, 3, key=f"rating_{book.id}")
+                        comment = st.text_area("Comentario (opcional)", key=f"comment_{book.id}")
+                        submit_review = st.form_submit_button("Enviar Reseña")
+
+                        if submit_review:
+                            review_in = ReviewCreate(rating=rating, comment=comment)
+                            try:
+                                create_review(db=db_main, review=review_in, user_id=st.session_state['user_id'], book_id=book.id)
+                                st.success("¡Reseña añadida con éxito!")
+                                time.sleep(1)
+                                st.rerun() # Recargar para ver la nueva reseña
+                            except Exception as e:
+                                st.error(f"Error al añadir la reseña: {e}")
+                                # Podrías querer hacer rollback aquí si create_review no lo maneja
+                                # db_main.rollback()
+
+except Exception as e:
+    st.error(f"Error cargando los libros o reseñas: {e}")
+finally:
+    if db_main:
+        db_main.close()
+
+
+# --- Sección de Administración (Solo visible para admins) ---
+if st.session_state.get('is_admin', False):
+    st.divider()
+    st.header("🔑 Panel de Administración")
+    st.subheader("Lista de Usuarios")
+
+    admin_db: Session | None = None
+    try:
+        admin_db = SessionLocal()
+        # Obtener la lista de usuarios usando la nueva función CRUD
+        # Podríamos añadir paginación aquí más adelante
+        all_users_data = get_users(db=admin_db, limit=200) # Obtener hasta 200 usuarios
+
+        if all_users_data:
+            # Crear un DataFrame de Pandas para mostrar en tabla
+            # Usamos los nombres de columna que seleccionamos en get_users
+            # Asegúrate de que pandas está instalado: uv pip install pandas
+            try:
+                import pandas as pd
+                df_users = pd.DataFrame(all_users_data, columns=['ID', 'Email', 'Activo', 'Creado', 'Actualizado'])
+                st.dataframe(df_users, use_container_width=True)
+            except ImportError:
+                st.error("La librería 'pandas' no está instalada. Por favor, ejecute `uv pip install pandas`.")
+                st.write("Datos de usuarios (sin formato tabla):")
+                st.write(all_users_data) # Mostrar datos crudos si pandas no está
+        else:
+            st.warning("No se encontraron usuarios.")
+
+    except Exception as e:
+        st.error(f"Error cargando la lista de usuarios: {e}")
+    finally:
+        if admin_db:
+            admin_db.close()
+
+# --- Pie de página (opcional) ---
 st.divider()
-st.caption("LibroRecomienda - Proyecto Final Bases de Datos")
+st.caption("LibroRecomienda - 2025")

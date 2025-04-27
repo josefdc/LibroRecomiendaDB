@@ -20,3 +20,8 @@ dependencies = [
     "streamlit>=1.44.1",
     "uvicorn[standard]>=0.34.2",
 ]
+
+[dependency-groups]
+dev = [
+    "faker>=37.1.0",
+]
