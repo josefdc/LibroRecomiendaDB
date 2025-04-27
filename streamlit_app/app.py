@@ -24,7 +24,39 @@ if 'logged_in' not in st.session_state:
 # ... (resto de inicializaciones si las hay) ...
 
 # --- Funciones Auxiliares (si las tienes) ---
-# ...
+# Ejemplo de función para cargar libros (si la tienes separada)
+# Si no, la lógica estará directamente en la sección principal
+@st.cache_data(ttl=3600) # Cachear por 1 hora
+def load_books_from_db():
+    db: Session | None = None
+    try:
+        db = SessionLocal()
+        # Seleccionar todas las columnas necesarias, incluyendo isbn
+        books_result = db.query(
+            Book.id, Book.title, Book.author, Book.genre,
+            Book.average_rating, Book.description,
+            Book.cover_image_url,
+            Book.isbn  # <-- Asegúrate que esta columna esté seleccionada
+        ).order_by(Book.title).all() # Ordenar por título para consistencia
+
+        # Convertir a un objeto más fácil de usar si prefieres (opcional)
+        # import types # Necesitarías importar types
+        # books_data = [
+        #     types.SimpleNamespace(
+        #         id=row.id, title=row.title, author=row.author, genre=row.genre,
+        #         average_rating=row.average_rating, description=row.description,
+        #         cover_image_url=row.cover_image_url,
+        #         isbn=row.isbn # <-- Añade el isbn aquí también
+        #     ) for row in books_result
+        # ]
+        # return books_data
+        return books_result # Devolver directamente los resultados de SQLAlchemy (Row objects)
+    except Exception as e:
+        st.error(f"Error cargando libros desde la base de datos: {e}")
+        return []
+    finally:
+        if db:
+            db.close()
 
 # --- Barra Lateral: Login / Registro / Logout ---
 st.sidebar.title("Acceso")
@@ -120,46 +152,68 @@ st.title("📚 LibroRecomienda")
 st.write("Encuentra y comparte reseñas de tus libros favoritos.")
 
 # --- Catálogo de Libros y Reseñas --- 
-# ... (código existente para mostrar libros, filtros, etc.) ...
-
-# Ejemplo de cómo podría ser la sección de mostrar libros (simplificado)
-db_main: Session | None = None
 try:
-    db_main = SessionLocal()
-    books = db_main.query(Book).order_by(Book.title).all()
+    # Cargar libros (usando la función cacheada o directamente)
+    # all_books = load_books_from_db() # Si usas la función auxiliar
+    db_main = SessionLocal() # Abrir sesión si no usas la función auxiliar
+    all_books = db_main.query(Book).order_by(Book.title).all() # Carga directa
 
-    if not books:
+    if not all_books:
         st.warning("No hay libros en la base de datos. Ejecuta `scripts/populate_db.py`.")
     else:
         st.header("Catálogo de Libros")
         # Aquí iría tu lógica de filtros y búsqueda si la tienes
+        # Ejemplo simple de filtro (si lo implementas)
+        # search_term = st.text_input("Buscar libro por título o autor")
+        # filtered_books = [book for book in all_books if search_term.lower() in book.title.lower() or (book.author and search_term.lower() in book.author.lower())] if search_term else all_books
+        filtered_books = all_books # Sin filtro por ahora
 
-        for book in books:
-            with st.expander(f"{book.title} ({book.author})"):
+        for book in filtered_books:
+            # Usar book.id como parte de la clave del expander para unicidad
+            with st.expander(f"{book.title} ({book.author or 'Autor Desconocido'})", key=f"expander_{book.id}"):
                 col1, col2 = st.columns([1, 3])
                 with col1:
                     if book.cover_image_url:
-                        st.image(book.cover_image_url, width=150)
+                        # Añadir manejo de errores para la imagen
+                        try:
+                            st.image(book.cover_image_url, width=150)
+                        except Exception as img_e:
+                            st.caption(f"Error cargando portada: {img_e}")
                     else:
                         st.caption("Sin portada")
                 with col2:
                     st.subheader(f"{book.title}")
-                    st.write(f"**Autor:** {book.author}")
-                    st.write(f"**ISBN:** {book.isbn}")
-                    st.write(f"**Género:** {book.genre}")
+                    st.write(f"**Autor:** {book.author or 'Desconocido'}")
+                    # st.write(f"**Año:** {book.publication_year}") # Ya comentado/eliminado
+                    # --- Mostrar ISBN si existe --- 
+                    if book.isbn:
+                        st.write(f"**ISBN:** {book.isbn}")
+                    # -------------------------------
+                    st.write(f"**Género:** {book.genre or 'Desconocido'}")
+                    # Mostrar descripción si existe
+                    if book.description:
+                        st.caption(f"Descripción: {book.description[:200]}...") # Mostrar solo una parte
 
                 # --- Sección de Reseñas --- 
                 st.markdown("#### Reseñas de otros usuarios")
+                # Asegurarse de pasar la sesión correcta a las funciones CRUD
                 reviews = get_reviews_for_book_with_user(db=db_main, book_id=book.id)
                 if reviews:
                     for review_data in reviews:
-                        st.markdown(f"**{review_data.user_email}** ({'⭐'*review_data.rating}): *{review_data.comment or 'Sin comentario'}* - _{review_data.created_at.strftime('%Y-%m-%d')}_ ")
+                        # Usar getattr para acceder a los atributos de forma segura
+                        user_email = getattr(review_data, 'user_email', 'Usuario Desconocido')
+                        rating = getattr(review_data, 'rating', 0)
+                        comment = getattr(review_data, 'comment', 'Sin comentario')
+                        created_at = getattr(review_data, 'created_at', None)
+                        date_str = created_at.strftime('%Y-%m-%d') if created_at else 'Fecha desconocida'
+                        st.markdown(f"**{user_email}** ({'⭐'*rating}): *{comment}* - _{date_str}_ ")
                 else:
                     st.caption("Todavía no hay reseñas para este libro.")
 
                 # --- Añadir Reseña (Solo si está logueado) ---
                 if st.session_state.get('logged_in', False):
                     st.markdown("#### Añade tu reseña")
+                    # Usar book.id en la clave del formulario para unicidad
                     with st.form(key=f"review_form_{book.id}"):
                         rating = st.slider("Puntuación", 1, 5, 3, key=f"rating_{book.id}")
                         comment = st.text_area("Comentario (opcional)", key=f"comment_{book.id}")
@@ -168,19 +222,25 @@ try:
                         if submit_review:
                             review_in = ReviewCreate(rating=rating, comment=comment)
                             try:
+                                # Asegurarse de pasar la sesión correcta
                                 create_review(db=db_main, review=review_in, user_id=st.session_state['user_id'], book_id=book.id)
                                 st.success("¡Reseña añadida con éxito!")
                                 time.sleep(1)
+                                # Limpiar cache si usas @st.cache_data en load_books_from_db
+                                # load_books_from_db.clear()
                                 st.rerun() # Recargar para ver la nueva reseña
                             except Exception as e:
                                 st.error(f"Error al añadir la reseña: {e}")
-                                # Podrías querer hacer rollback aquí si create_review no lo maneja
-                                # db_main.rollback()
+                                # db_main.rollback() # Rollback si es necesario
 
 except Exception as e:
     st.error(f"Error cargando los libros o reseñas: {e}")
+    # Asegurarse de cerrar la sesión si se abrió aquí
+    if 'db_main' in locals() and db_main:
+        db_main.close()
 finally:
-    if db_main:
+    # Asegurarse de cerrar la sesión si se abrió en el bloque try principal
+    if 'db_main' in locals() and db_main:
         db_main.close()
 
 

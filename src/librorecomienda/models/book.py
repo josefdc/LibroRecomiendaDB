@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, Float, ForeignKey
+from sqlalchemy import Column, Integer, String, Text, Float, ForeignKey, Index
 from sqlalchemy.orm import relationship
 from librorecomienda.db.session import Base
 
@@ -10,8 +10,13 @@ class Book(Base):
     author = Column(String(255), index=True, nullable=True)
     genre = Column(String(100), nullable=True)
     description = Column(Text, nullable=True)
-    average_rating = Column(Float, nullable=True) # Podría calcularse o venir de una fuente externa
+    average_rating = Column(Float, nullable=True, default=None)
     cover_image_url = Column(String(512), nullable=True)
+
+    isbn = Column(String(20), unique=True, index=True, nullable=True)
 
     # Relación con Reviews (un libro puede tener muchas reseñas)
     reviews = relationship("Review", back_populates="book")
+
+    def __repr__(self):
+         return f"<Book(id={self.id}, title='{self.title[:30]}...', isbn='{self.isbn}'>"
