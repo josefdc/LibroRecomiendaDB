@@ -10,7 +10,15 @@ from librorecomienda.models.book import Book
 from librorecomienda.models.user import User # Asegúrate de importar User
 from librorecomienda.schemas.user import UserCreate
 from librorecomienda.schemas.review import ReviewCreate
-from librorecomienda.crud import create_user, get_user_by_email, create_review, get_reviews_for_book_with_user, get_users # Importar get_users
+from librorecomienda.crud import (
+    create_user,
+    get_user_by_email,
+    create_review,
+    get_reviews_for_book_with_user,
+    get_users,
+    soft_delete_review,
+    get_all_reviews_admin, # <-- Import get_all_reviews_admin
+)
 from librorecomienda.core.security import verify_password, get_password_hash
 from librorecomienda.core.config import settings # Importar settings
 
@@ -170,7 +178,8 @@ try:
 
         for book in filtered_books:
             # Usar book.id como parte de la clave del expander para unicidad
-            with st.expander(f"{book.title} ({book.author or 'Autor Desconocido'})", key=f"expander_{book.id}"):
+            # Se elimina el argumento 'key' para compatibilidad con versiones anteriores de Streamlit
+            with st.expander(f"{book.title} ({book.author or 'Autor Desconocido'})"):
                 col1, col2 = st.columns([1, 3])
                 with col1:
                     if book.cover_image_url:
@@ -194,19 +203,56 @@ try:
                     if book.description:
                         st.caption(f"Descripción: {book.description[:200]}...") # Mostrar solo una parte
 
-                # --- Sección de Reseñas --- 
+                # --- Sección de Reseñas ---
                 st.markdown("#### Reseñas de otros usuarios")
                 # Asegurarse de pasar la sesión correcta a las funciones CRUD
-                reviews = get_reviews_for_book_with_user(db=db_main, book_id=book.id)
-                if reviews:
-                    for review_data in reviews:
-                        # Usar getattr para acceder a los atributos de forma segura
-                        user_email = getattr(review_data, 'user_email', 'Usuario Desconocido')
-                        rating = getattr(review_data, 'rating', 0)
-                        comment = getattr(review_data, 'comment', 'Sin comentario')
-                        created_at = getattr(review_data, 'created_at', None)
-                        date_str = created_at.strftime('%Y-%m-%d') if created_at else 'Fecha desconocida'
-                        st.markdown(f"**{user_email}** ({'⭐'*rating}): *{comment}* - _{date_str}_ ")
+                # Use the updated function that returns Row objects (Review, User.email)
+                reviews_data = get_reviews_for_book_with_user(db=db_main, book_id=book.id)
+                if reviews_data:
+                    # reviews_data is a list of Row objects, access attributes by name
+                    for review_row in reviews_data:
+                        review = review_row.Review # Access the Review object
+                        user_email = review_row.email # Access the user's email
+
+                        # Display review details
+                        st.markdown(f"**{user_email or 'Usuario Desconocido'}** ({'⭐'*review.rating}):")
+                        if review.comment:
+                            st.markdown(f"> *{review.comment}*")
+                        st.caption(f"_{review.created_at.strftime('%Y-%m-%d %H:%M') if review.created_at else 'Fecha desconocida'}_")
+
+                        # --- Botón Borrar (si es mi reseña y estoy logueado) ---
+                        # Compara el user_id de la reseña con el user_id en session_state
+                        if st.session_state.get('logged_in', False) and review.user_id == st.session_state.get('user_id'):
+                            # Usamos un key único para cada botón de borrar
+                            if st.button("🗑️ Borrar mi reseña", key=f"delete_review_{review.id}", type="secondary"):
+                                # Optional: Add a confirmation step if desired
+                                # st.warning("¿Estás seguro?")
+                                # if st.button("Confirmar Borrado", key=f"confirm_delete_{review.id}"):
+                                delete_db: Session | None = None
+                                try:
+                                    delete_db = SessionLocal()
+                                    # Llamar a la función CRUD de borrado lógico
+                                    success = soft_delete_review(
+                                        db=delete_db,
+                                        review_id=review.id, # Pasar el ID de la reseña actual
+                                        requesting_user_id=st.session_state['user_id']
+                                    )
+                                    if success:
+                                        st.toast("Reseña borrada.", icon="🗑️")
+                                        # Limpiar caché si usas @st.cache_data en load_books_from_db
+                                        # O simplemente limpiar la caché general de datos si afecta a las reseñas
+                                        st.cache_data.clear()
+                                        time.sleep(1) # Pausa para ver el toast
+                                        st.rerun() # Refrescar la página
+                                    else:
+                                        # Podría ser que no se encontró o no tenía permiso (soft_delete_review ya loguea el error)
+                                        st.warning("No se pudo borrar la reseña (quizás ya estaba borrada o hubo un problema).")
+                                except Exception as e_del:
+                                    st.error(f"Error al intentar borrar: {e_del}")
+                                finally:
+                                    if delete_db:
+                                        delete_db.close()
+                        st.markdown("---") # Separator between reviews
                 else:
                     st.caption("Todavía no hay reseñas para este libro.")
 
@@ -245,39 +291,52 @@ finally:
 
 
 # --- Sección de Administración (Solo visible para admins) ---
-if st.session_state.get('is_admin', False):
-    st.divider()
-    st.header("🔑 Panel de Administración")
-    st.subheader("Lista de Usuarios")
+if st.session_state.get('is_admin'):
+    st.sidebar.divider()
+    st.sidebar.header("Panel de Administración")
+    admin_option = st.sidebar.radio("Selecciona una vista:", ["Gestión de Usuarios", "Gestión de Reseñas"], key="admin_view")
 
-    admin_db: Session | None = None
-    try:
-        admin_db = SessionLocal()
-        # Obtener la lista de usuarios usando la nueva función CRUD
-        # Podríamos añadir paginación aquí más adelante
-        all_users_data = get_users(db=admin_db, limit=200) # Obtener hasta 200 usuarios
+    with db:
+        if admin_option == "Gestión de Usuarios":
+            st.subheader("Gestión de Usuarios")
+            users_data = get_users(db) # Use directly
+            if users_data:
+                # Crear un DataFrame de Pandas para mostrar en tabla
+                # Usamos los nombres de columna que seleccionamos en get_users
+                # Asegúrate de que pandas está instalado: uv pip install pandas
+                try:
+                    import pandas as pd
+                    df_users = pd.DataFrame(users_data, columns=['ID', 'Email', 'Activo', 'Creado', 'Actualizado'])
+                    st.dataframe(df_users, use_container_width=True)
+                except ImportError:
+                    st.error("La librería 'pandas' no está instalada. Por favor, ejecute `uv pip install pandas`.")
+                    st.write("Datos de usuarios (sin formato tabla):")
+                    st.write(users_data) # Mostrar datos crudos si pandas no está
+            else:
+                st.write("No hay usuarios registrados.")
 
-        if all_users_data:
-            # Crear un DataFrame de Pandas para mostrar en tabla
-            # Usamos los nombres de columna que seleccionamos en get_users
-            # Asegúrate de que pandas está instalado: uv pip install pandas
-            try:
-                import pandas as pd
-                df_users = pd.DataFrame(all_users_data, columns=['ID', 'Email', 'Activo', 'Creado', 'Actualizado'])
-                st.dataframe(df_users, use_container_width=True)
-            except ImportError:
-                st.error("La librería 'pandas' no está instalada. Por favor, ejecute `uv pip install pandas`.")
-                st.write("Datos de usuarios (sin formato tabla):")
-                st.write(all_users_data) # Mostrar datos crudos si pandas no está
-        else:
-            st.warning("No se encontraron usuarios.")
+        elif admin_option == "Gestión de Reseñas": # <-- Use elif
+            st.subheader("Gestión de Reseñas")
+            reviews_admin_data = get_all_reviews_admin(db) # Use directly
+            if reviews_admin_data:
+                reviews_list = []
+                for review, user_email, book_title in reviews_admin_data:
+                    reviews_list.append(
+                        {
+                            "ID Reseña": review.id,
+                            "Libro": book_title,
+                            "Usuario": user_email,
+                            "Puntuación": review.rating,
+                            "Comentario": review.comment,
+                            "Fecha": review.created_at.strftime("%Y-%m-%d %H:%M"),
+                            "Estado": "BORRADO" if review.is_deleted else "Activo",
+                        }
+                    )
+                reviews_df = pd.DataFrame(reviews_list)
+                st.dataframe(reviews_df, use_container_width=True)
+            else:
+                st.write("No hay reseñas para mostrar.")
 
-    except Exception as e:
-        st.error(f"Error cargando la lista de usuarios: {e}")
-    finally:
-        if admin_db:
-            admin_db.close()
+# --- Fin Panel de Administración ---
 
-# --- Pie de página (opcional) ---
 st.divider()
-st.caption("LibroRecomienda - 2025")
