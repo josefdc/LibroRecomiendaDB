@@ -6,6 +6,8 @@ from .crud_review import (
     get_review_by_id,
     soft_delete_review,
     get_all_reviews_admin,
+    restore_review,
+    permanently_delete_review,
 )
 
 __all__ = [
@@ -18,4 +20,6 @@ __all__ = [
     "get_review_by_id",
     "soft_delete_review",
     "get_all_reviews_admin",
+    "restore_review",
+    "permanently_delete_review",
 ]

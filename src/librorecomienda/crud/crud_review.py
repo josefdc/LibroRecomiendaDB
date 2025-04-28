@@ -135,3 +135,72 @@ def get_all_reviews_admin(db: Session, skip: int = 0, limit: int = 100) -> list:
             order_by(desc(Review.created_at)).\
             offset(skip).\
             limit(limit).all() # Sin filtro por is_deleted
+
+
+# --- NEW ADMIN ACTIONS ---
+
+def restore_review(db: Session, review_id: int) -> bool:
+    """
+    Restores a logically deleted review (sets is_deleted=False)
+    and updates the book's average rating.
+    Returns True if restored, False if not found or already active.
+    """
+    db_review = get_review_by_id(db, review_id)
+
+    if not db_review:
+        logger.warning(f"Attempted to restore non-existent review ID: {review_id}")
+        return False # Review not found
+
+    if not db_review.is_deleted:
+        logger.info(f"Review {review_id} is already active. No action taken.")
+        return False # Already active
+
+    book_id = db_review.book_id # Get book_id for rating update
+
+    # Mark as active (not deleted)
+    db_review.is_deleted = False
+    db.add(db_review)
+    db.flush() # Ensure the change is pending
+
+    # --- Update average rating within the SAME transaction ---
+    _update_book_average_rating(db=db, book_id=book_id)
+
+    try:
+        db.commit() # Commit both flag change and rating update together
+        logger.info(f"Review {review_id} restored. Average rating for book {book_id} updated.")
+        return True
+    except Exception as e:
+        logger.exception(f"Error committing restore/rating update for review ID {review_id}: {e}")
+        db.rollback()
+        return False # Indicate failure
+
+
+def permanently_delete_review(db: Session, review_id: int) -> bool:
+    """
+    Permanently deletes a review from the database
+    and updates the book's average rating.
+    Returns True if deleted, False if not found.
+    """
+    db_review = get_review_by_id(db, review_id)
+
+    if not db_review:
+        logger.warning(f"Attempted to permanently delete non-existent review ID: {review_id}")
+        return False # Review not found
+
+    book_id = db_review.book_id # Get book_id BEFORE deleting
+
+    try:
+        db.delete(db_review)
+        db.flush() # Ensure the deletion is pending
+
+        # --- Update average rating within the SAME transaction ---
+        # Important: Call this *after* flush ensures the review is gone for the calculation
+        _update_book_average_rating(db=db, book_id=book_id)
+
+        db.commit() # Commit both deletion and rating update together
+        logger.info(f"Review {review_id} permanently deleted. Average rating for book {book_id} updated.")
+        return True
+    except Exception as e:
+        logger.exception(f"Error committing permanent delete/rating update for review ID {review_id}: {e}")
+        db.rollback()
+        return False # Indicate failure
