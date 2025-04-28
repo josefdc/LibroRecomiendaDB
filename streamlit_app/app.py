@@ -193,15 +193,22 @@ try:
                 with col2:
                     st.subheader(f"{book.title}")
                     st.write(f"**Autor:** {book.author or 'Desconocido'}")
-                    # st.write(f"**Año:** {book.publication_year}") # Ya comentado/eliminado
-                    # --- Mostrar ISBN si existe --- 
                     if book.isbn:
                         st.write(f"**ISBN:** {book.isbn}")
-                    # -------------------------------
                     st.write(f"**Género:** {book.genre or 'Desconocido'}")
-                    # Mostrar descripción si existe
+
+                    # --- Display Average Rating ---
+                    if book.average_rating is not None:
+                        # Using st.write (simpler)
+                        st.write(f"**Rating Promedio:** {book.average_rating:.1f} ⭐") # Format to 1 decimal place
+                    else:
+                        # If no non-deleted reviews exist yet
+                        st.caption("Aún sin calificar")
+                    # --- End Display Average Rating ---
+
+                    # Display Description...
                     if book.description:
-                        st.caption(f"Descripción: {book.description[:200]}...") # Mostrar solo una parte
+                        st.caption(f"Descripción: {book.description[:200]}...") # Show part of description
 
                 # --- Sección de Reseñas ---
                 st.markdown("#### Reseñas de otros usuarios")
@@ -294,16 +301,24 @@ finally:
 if st.session_state.get('is_admin'):
     st.sidebar.divider()
     st.sidebar.header("Panel de Administración")
-    admin_option = st.sidebar.radio("Selecciona una vista:", ["Gestión de Usuarios", "Gestión de Reseñas"], key="admin_view")
+    admin_option = st.sidebar.radio(
+        "Selecciona una vista:",
+        ["Gestión de Usuarios", "Gestión de Reseñas"],
+        key="admin_view"
+    )
 
-    with db:
+    st.divider() # Mover el divider aquí para separar visualmente el panel principal
+
+    # --- Obtener una sesión de BD para el panel de admin ---
+    db_admin: Session | None = None # Definir variable fuera del try
+    try:
+        db_admin = SessionLocal() # Crear nueva sesión
+
         if admin_option == "Gestión de Usuarios":
             st.subheader("Gestión de Usuarios")
-            users_data = get_users(db) # Use directly
+            # Pasar la sesión db_admin a la función CRUD
+            users_data = get_users(db_admin)
             if users_data:
-                # Crear un DataFrame de Pandas para mostrar en tabla
-                # Usamos los nombres de columna que seleccionamos en get_users
-                # Asegúrate de que pandas está instalado: uv pip install pandas
                 try:
                     import pandas as pd
                     df_users = pd.DataFrame(users_data, columns=['ID', 'Email', 'Activo', 'Creado', 'Actualizado'])
@@ -311,13 +326,14 @@ if st.session_state.get('is_admin'):
                 except ImportError:
                     st.error("La librería 'pandas' no está instalada. Por favor, ejecute `uv pip install pandas`.")
                     st.write("Datos de usuarios (sin formato tabla):")
-                    st.write(users_data) # Mostrar datos crudos si pandas no está
+                    st.write(users_data)
             else:
                 st.write("No hay usuarios registrados.")
 
-        elif admin_option == "Gestión de Reseñas": # <-- Use elif
+        elif admin_option == "Gestión de Reseñas":
             st.subheader("Gestión de Reseñas")
-            reviews_admin_data = get_all_reviews_admin(db) # Use directly
+            # Pasar la sesión db_admin a la función CRUD
+            reviews_admin_data = get_all_reviews_admin(db_admin)
             if reviews_admin_data:
                 reviews_list = []
                 for review, user_email, book_title in reviews_admin_data:
@@ -329,14 +345,23 @@ if st.session_state.get('is_admin'):
                             "Puntuación": review.rating,
                             "Comentario": review.comment,
                             "Fecha": review.created_at.strftime("%Y-%m-%d %H:%M"),
+                            # Usar el flag is_deleted para determinar el estado
                             "Estado": "BORRADO" if review.is_deleted else "Activo",
                         }
                     )
+                # Asegúrate de que pandas esté importado (puede estar arriba)
+                import pandas as pd
                 reviews_df = pd.DataFrame(reviews_list)
                 st.dataframe(reviews_df, use_container_width=True)
             else:
                 st.write("No hay reseñas para mostrar.")
 
+    except Exception as admin_e:
+        st.error(f"Error en el panel de administración: {admin_e}")
+    finally:
+        # --- Cerrar la sesión de BD del panel de admin ---
+        if db_admin:
+            db_admin.close()
 # --- Fin Panel de Administración ---
 
 st.divider()
