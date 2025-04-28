@@ -1,21 +1,59 @@
 from sqlalchemy.orm import Session
-from sqlalchemy import desc
+from sqlalchemy import desc, func # Import func
+import logging
 
 from ..models.review import Review
 from ..models.user import User
-from ..models.book import Book
+from ..models.book import Book # Import Book
 from ..schemas.review import ReviewCreate
-
-import logging  # Añade logging para mensajes
 
 logger = logging.getLogger(__name__)
 
+# --- NEW HELPER FUNCTION ---
+def _update_book_average_rating(db: Session, book_id: int):
+    """
+    Calculates the average rating for a book based on non-deleted reviews
+    and updates the book's average_rating field.
+    """
+    # Calculate the average rating using the database aggregate function
+    # Filter only active (non-deleted) reviews for the specific book
+    avg_rating_result = db.query(func.avg(Review.rating))\
+                          .filter(Review.book_id == book_id, Review.is_deleted == False)\
+                          .scalar() # Use scalar() to get a single value or None
+
+    # Get the book object
+    book = db.query(Book).filter(Book.id == book_id).first()
+
+    if book:
+        # Update the average_rating. If avg_rating_result is None (no reviews), set it to None
+        book.average_rating = avg_rating_result if avg_rating_result is not None else None
+        db.add(book) # Add the updated book instance to the session
+        # No commit here, the caller handles it.
+        # No flush needed here as the caller flushes before calling this.
+
 
 def create_review(db: Session, review: ReviewCreate, user_id: int, book_id: int) -> Review:
-    db_review = Review(**review.model_dump(), user_id=user_id, book_id=book_id)
+    db_review = Review(
+        **review.model_dump(),
+        user_id=user_id,
+        book_id=book_id,
+        is_deleted=False # Explicitly set is_deleted to False
+    )
     db.add(db_review)
-    db.commit()
-    db.refresh(db_review)
+    db.flush() # Ensure db_review gets an ID and is pending insertion
+
+    # --- Update average rating within the SAME transaction ---
+    _update_book_average_rating(db=db, book_id=book_id)
+
+    try:
+        db.commit() # Commit both review and rating update together
+        db.refresh(db_review)
+        logger.info(f"Review {db_review.id} created for book {book_id} by user {user_id}. Average rating updated.")
+    except Exception as e:
+        logger.exception(f"Error committing review creation/rating update for book {book_id}: {e}")
+        db.rollback()
+        raise # Re-raise the exception after rollback
+
     return db_review
 
 
@@ -45,36 +83,43 @@ def get_review_by_id(db: Session, review_id: int) -> Review | None:
 
 def soft_delete_review(db: Session, review_id: int, requesting_user_id: int) -> bool:
     """
-    Marca una reseña como borrada (soft delete).
-    Retorna True si se marcó como borrada, False si no se encontró o no se tenía permiso.
+    Marks a review as deleted (soft delete) and updates the book's average rating.
+    Returns True if marked as deleted, False if not found or not authorized.
     """
     db_review = get_review_by_id(db, review_id)
 
     if not db_review:
-        logger.warning(f"Intento de borrado de reseña no encontrada ID: {review_id}")
-        return False # Reseña no encontrada
+        logger.warning(f"Attempted soft delete of non-existent review ID: {review_id}")
+        return False # Review not found
 
-    # --- Verificación de Permiso ---
+    # --- Permission Check ---
     if db_review.user_id != requesting_user_id:
-        logger.error(f"Intento no autorizado: Usuario {requesting_user_id} intentó borrar reseña {review_id} del usuario {db_review.user_id}")
-        # En una API real, aquí lanzarías una excepción HTTP 403 Forbidden
-        return False # No es el dueño
+        logger.error(f"Unauthorized attempt: User {requesting_user_id} tried to delete review {review_id} owned by {db_review.user_id}")
+        # In a real API, you might raise an HTTPException 403 Forbidden here
+        return False # Not the owner
 
     if db_review.is_deleted:
-        logger.info(f"Reseña {review_id} ya estaba marcada como borrada.")
-        return True # Ya estaba borrada, operación "exitosa" en el sentido de que el estado deseado se cumple
+        logger.info(f"Review {review_id} was already marked as deleted.")
+        return True # Already deleted, operation "successful"
 
-    # Marcar como borrada y guardar
+    book_id = db_review.book_id # Get book_id BEFORE marking as deleted
+
+    # Mark as deleted
+    db_review.is_deleted = True
+    db.add(db_review)
+    db.flush() # Ensure the change is pending
+
+    # --- Update average rating within the SAME transaction ---
+    _update_book_average_rating(db=db, book_id=book_id)
+
     try:
-        db_review.is_deleted = True
-        db.add(db_review) # Marcar el objeto como modificado para la sesión
-        db.commit()
-        logger.info(f"Reseña {review_id} marcada como borrada por usuario {requesting_user_id}.")
+        db.commit() # Commit both flag change and rating update together
+        logger.info(f"Review {review_id} marked as deleted by user {requesting_user_id}. Average rating for book {book_id} updated.")
         return True
     except Exception as e:
-        logger.exception(f"Error al hacer commit en soft_delete_review para review ID {review_id}: {e}")
-        db.rollback() # Deshacer cambios si el commit falla
-        return False
+        logger.exception(f"Error committing soft delete/rating update for review ID {review_id}: {e}")
+        db.rollback()
+        return False # Indicate failure
 
 
 def get_all_reviews_admin(db: Session, skip: int = 0, limit: int = 100) -> list:

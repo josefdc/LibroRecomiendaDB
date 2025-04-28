@@ -1,6 +1,11 @@
 # tests/crud/test_crud_review.py
 import pytest
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session # Import Session
+from pytest import approx # Import approx for float comparison
+# Import helper directly from its module
+from librorecomienda.crud.crud_review import _update_book_average_rating
+from librorecomienda.models.book import Book # Import Book model
 
 # Adjust imports based on your project structure
 from librorecomienda.crud import (
@@ -14,7 +19,6 @@ from librorecomienda.crud import (
 from librorecomienda.schemas.review import ReviewCreate
 from librorecomienda.schemas.user import UserCreate
 from librorecomienda.models.user import User
-from librorecomienda.models.book import Book
 from librorecomienda.models.review import Review
 
 # --- Helper Fixtures ---
@@ -30,9 +34,10 @@ def crud_test_user_2(db_session):
 
 @pytest.fixture
 def crud_test_book(db_session):
-    book = Book(title="CRUD Review Test Book", author="Test Author", isbn="5556667778889")
+    # Ensure average_rating starts as None or a default
+    book = Book(title="CRUD Review Test Book", author="Test Author", isbn="5556667778889", average_rating=None)
     db_session.add(book)
-    db_session.commit() # Commit here as it's setup for multiple tests
+    db_session.commit()
     db_session.refresh(book)
     return book
 # --------------------------------------------------------------------------------
@@ -150,7 +155,7 @@ def test_soft_delete_review_not_owner(db_session, crud_test_user, crud_test_user
     assert review.is_deleted is False
 
     # Attempt delete by user 2
-    success = soft_delete_review(db=db_session, review_id=review.id, requesting_user_id=crud_test_user_2.id)
+    success = soft_delete_review(db_session, review_id=review.id, requesting_user_id=crud_test_user_2.id)
     assert success is False
 
     # Verify in DB it wasn't deleted
@@ -200,3 +205,106 @@ def test_get_all_reviews_admin(db_session, crud_test_user, crud_test_user_2, cru
 
     assert found_active, "Active review not found in admin list"
     assert found_deleted, "Deleted review not found in admin list"
+
+# --- NEW TESTS for average_rating ---
+
+def test_update_average_rating_first_review(db_session: Session, crud_test_user: User, crud_test_book: Book):
+    """Test average_rating is updated correctly after the first review."""
+    # Verification (Initial State)
+    assert crud_test_book.average_rating is None
+
+    # Action: Create the first review
+    review_in = ReviewCreate(rating=5, comment="Amazing!")
+    create_review(db=db_session, review=review_in, user_id=crud_test_user.id, book_id=crud_test_book.id)
+
+    # Verification: Refresh book and check average_rating
+    db_session.refresh(crud_test_book)
+    assert crud_test_book.average_rating == approx(5.0)
+
+def test_update_average_rating_multiple_reviews(db_session: Session, crud_test_user: User, crud_test_user_2: User, crud_test_book: Book):
+    """Test average_rating is updated correctly with multiple reviews."""
+    # Verification (Initial State)
+    assert crud_test_book.average_rating is None
+
+    # Action: Create multiple reviews (using different users to avoid unique constraint)
+    create_review(db=db_session, review=ReviewCreate(rating=5), user_id=crud_test_user.id, book_id=crud_test_book.id)
+    create_review(db_session, review=ReviewCreate(rating=3), user_id=crud_test_user_2.id, book_id=crud_test_book.id)
+
+    # Verification
+    db_session.refresh(crud_test_book)
+    assert crud_test_book.average_rating == approx((5 + 3) / 2.0)
+
+def test_update_average_rating_after_soft_delete(db_session: Session, crud_test_user: User, crud_test_user_2: User, crud_test_book: Book):
+    """Test average_rating is recalculated after a review is soft-deleted."""
+    # Setup: Create two reviews
+    review1 = create_review(db=db_session, review=ReviewCreate(rating=5), user_id=crud_test_user.id, book_id=crud_test_book.id)
+    review2 = create_review(db=db_session, review=ReviewCreate(rating=1), user_id=crud_test_user_2.id, book_id=crud_test_book.id)
+
+    # Verification (Initial State after reviews)
+    db_session.refresh(crud_test_book)
+    assert crud_test_book.average_rating == approx((5 + 1) / 2.0) # Initial average is 3.0
+
+    # Action: Soft delete the second review (owned by crud_test_user_2)
+    success = soft_delete_review(db=db_session, review_id=review2.id, requesting_user_id=crud_test_user_2.id)
+    assert success is True
+
+    # Verification: Average should now only be based on the non-deleted review (review1)
+    db_session.refresh(crud_test_book)
+    assert crud_test_book.average_rating == approx(5.0)
+
+def test_update_average_rating_after_deleting_last_review(db_session: Session, crud_test_user: User, crud_test_book: Book):
+    """Test average_rating becomes None after the last review is soft-deleted."""
+    # Setup: Create one review
+    review1 = create_review(db=db_session, review=ReviewCreate(rating=4), user_id=crud_test_user.id, book_id=crud_test_book.id)
+
+    # Verification (Initial State)
+    db_session.refresh(crud_test_book)
+    assert crud_test_book.average_rating == approx(4.0)
+
+    # Action: Soft delete the only review
+    success = soft_delete_review(db_session, review_id=review1.id, requesting_user_id=crud_test_user.id)
+    assert success is True
+
+    # Verification: Average should become None
+    db_session.refresh(crud_test_book)
+    assert crud_test_book.average_rating is None
+
+def test_soft_delete_non_existent_review(db_session: Session, crud_test_user: User):
+    """Test soft deleting a review that doesn't exist returns False."""
+    success = soft_delete_review(db=db_session, review_id=99999, requesting_user_id=crud_test_user.id)
+    assert success is False
+
+def test_soft_delete_review_not_owned(db_session: Session, crud_test_user: User, crud_test_user_2: User, crud_test_book: Book):
+    """Test soft deleting a review owned by another user returns False."""
+    # Setup: User 1 creates a review
+    review1 = create_review(db=db_session, review=ReviewCreate(rating=5), user_id=crud_test_user.id, book_id=crud_test_book.id)
+    db_session.refresh(crud_test_book)
+    initial_rating = crud_test_book.average_rating
+
+    # Action: User 2 tries to delete User 1's review
+    success = soft_delete_review(db=db_session, review_id=review1.id, requesting_user_id=crud_test_user_2.id)
+    assert success is False
+
+    # Verification: Review should not be deleted, rating should be unchanged
+    db_session.refresh(review1)
+    db_session.refresh(crud_test_book)
+    assert review1.is_deleted is False
+    assert crud_test_book.average_rating == initial_rating
+
+def test_soft_delete_already_deleted_review(db_session: Session, crud_test_user: User, crud_test_book: Book):
+    """Test soft deleting an already deleted review returns True and doesn't change rating again."""
+     # Setup: Create and delete a review
+    review1 = create_review(db=db_session, review=ReviewCreate(rating=2), user_id=crud_test_user.id, book_id=crud_test_book.id)
+    success_first_delete = soft_delete_review(db=db_session, review_id=review1.id, requesting_user_id=crud_test_user.id)
+    assert success_first_delete is True
+    db_session.refresh(crud_test_book)
+    rating_after_first_delete = crud_test_book.average_rating # Should be None
+    assert rating_after_first_delete is None
+
+    # Action: Try to delete it again
+    success_second_delete = soft_delete_review(db=db_session, review_id=review1.id, requesting_user_id=crud_test_user.id)
+    assert success_second_delete is True # Should still return True
+
+    # Verification: Rating should remain unchanged (still None)
+    db_session.refresh(crud_test_book)
+    assert crud_test_book.average_rating is None
