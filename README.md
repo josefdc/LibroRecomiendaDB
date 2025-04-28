@@ -1,10 +1,9 @@
-\
 # LibroRecomienda 📚🤖
 
 [![Python Version](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/)
 
-**Proyecto Final - [Course/Subject Details]**
-**Autor:** [Your Name]
+**Proyecto Final - Bases De Datos**
+**Autor:** Jose Felipe Duarte
 **Fecha:** April 27, 2025
 
 ---
@@ -156,7 +155,7 @@ Sigue estos pasos para poner en marcha el proyecto localmente:
 2. **Clonar el Repositorio:**
 
    ```bash
-[   git clone https://github.com/josefdc/LibroRecomiendaDB
+   git clone https://github.com/josefdc/LibroRecomiendaDB
    cd LibroRecomienda
    ```
 
