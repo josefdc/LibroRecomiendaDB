@@ -1,17 +1,32 @@
-# src/librorecomienda/schemas/user.py
-from pydantic import BaseModel, EmailStr, ConfigDict # Import ConfigDict
+"""
+Esquemas Pydantic para la entidad User en la API de LibroRecomienda.
+Define los modelos de entrada y salida para validación y serialización de usuarios.
+"""
 
-# Schema para recibir datos al crear usuario
+from pydantic import BaseModel, EmailStr, ConfigDict
+
 class UserCreate(BaseModel):
+    """
+    Esquema para la creación de un usuario.
+
+    Atributos:
+        email (EmailStr): Correo electrónico del usuario.
+        password (str): Contraseña en texto plano (será hasheada antes de almacenar).
+    """
     email: EmailStr
     password: str
 
-# Schema para devolver datos del usuario (sin contraseña)
 class UserSchema(BaseModel):
+    """
+    Esquema de salida para un usuario (sin contraseña).
+
+    Atributos:
+        id (int): ID del usuario.
+        email (EmailStr): Correo electrónico del usuario.
+        is_active (bool): Estado de activación del usuario.
+    """
     id: int
     email: EmailStr
     is_active: bool
-    # Podrías añadir created_at si quieres mostrarlo
 
-    # Updated configuration
     model_config = ConfigDict(from_attributes=True)

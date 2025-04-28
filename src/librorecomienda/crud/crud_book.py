@@ -1,37 +1,42 @@
-# src/librorecomienda/crud/crud_book.py
+"""
+Operaciones CRUD para el modelo Book en la base de datos.
+Incluye funciones para buscar libros por distintos criterios, obtener por ID o ISBN, etc.
+Pensado para ser utilizado por la capa de servicios y herramientas del agente conversacional.
+"""
+
 from sqlalchemy.orm import Session
 from sqlalchemy import select, or_
 from typing import List, Optional
 
-from ..models.book import Book  # Assuming your model is in models/book.py
+from ..models.book import Book
 
 def search_books(
     db: Session,
     title: Optional[str] = None,
     author: Optional[str] = None,
     genre: Optional[str] = None,
-    query: Optional[str] = None, # General query term
+    query: Optional[str] = None,
     limit: int = 10
 ) -> List[Book]:
     """
-    Searches for books in the database based on title, author, genre, or a general query term.
+    Busca libros en la base de datos según título, autor, género o un término general.
 
     Args:
-        db: The database session.
-        title: Filter by book title (case-insensitive partial match).
-        author: Filter by author name (case-insensitive partial match).
-        genre: Filter by genre (case-insensitive partial match).
-        query: A general search term to match against title, author, or genre.
-        limit: The maximum number of results to return.
+        db (Session): Sesión de base de datos SQLAlchemy.
+        title (Optional[str]): Filtra por título del libro (coincidencia parcial, sin distinción de mayúsculas).
+        author (Optional[str]): Filtra por autor (coincidencia parcial, sin distinción de mayúsculas).
+        genre (Optional[str]): Filtra por género (coincidencia parcial, sin distinción de mayúsculas).
+        query (Optional[str]): Término general para buscar en título, autor o género.
+        limit (int): Número máximo de resultados a devolver.
 
     Returns:
-        A list of matching Book objects.
+        List[Book]: Lista de objetos Book que cumplen los criterios.
     """
     stmt = select(Book)
     filters = []
 
     if query:
-        # General query searches across title, author, and genre
+        # Búsqueda general en título, autor y género
         query_filter = or_(
             Book.title.ilike(f"%{query}%"),
             Book.author.ilike(f"%{query}%"),
@@ -39,7 +44,6 @@ def search_books(
         )
         filters.append(query_filter)
     else:
-        # Specific field filters
         if title:
             filters.append(Book.title.ilike(f"%{title}%"))
         if author:
@@ -56,32 +60,28 @@ def search_books(
 
 def get_book_by_id(db: Session, book_id: int) -> Optional[Book]:
     """
-    Retrieves a single book by its primary key ID.
+    Recupera un libro por su ID primario.
 
     Args:
-        db: The database session.
-        book_id: The ID of the book to retrieve.
+        db (Session): Sesión de base de datos SQLAlchemy.
+        book_id (int): ID del libro a recuperar.
 
     Returns:
-        The Book object if found, otherwise None.
+        Optional[Book]: El objeto Book si se encuentra, None si no existe.
     """
     return db.get(Book, book_id)
 
 def get_book_by_isbn(db: Session, isbn: str) -> Optional[Book]:
     """
-    Retrieves a single book by its ISBN.
+    Recupera un libro por su ISBN.
 
     Args:
-        db: The database session.
-        isbn: The ISBN of the book to retrieve.
+        db (Session): Sesión de base de datos SQLAlchemy.
+        isbn (str): ISBN del libro a recuperar.
 
     Returns:
-        The Book object if found, otherwise None.
+        Optional[Book]: El objeto Book si se encuentra, None si no existe.
     """
     stmt = select(Book).where(Book.isbn == isbn)
     result = db.execute(stmt)
     return result.scalars().first()
-
-# You might add more functions as needed, e.g., create_book, update_book, etc.
-# def create_book(db: Session, book_data: schemas.BookCreate) -> Book:
-#     ...

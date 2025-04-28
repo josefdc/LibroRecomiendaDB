@@ -1,29 +1,46 @@
-# src/librorecomienda/models/user.py
+"""
+Modelo ORM para la entidad User en la base de datos de LibroRecomienda.
+Define los campos principales de un usuario y su relación con las reseñas.
+"""
+
 import datetime
 from sqlalchemy import Column, Integer, String, Boolean, DateTime, func
 from sqlalchemy.orm import relationship
 from librorecomienda.db.session import Base
 
 class User(Base):
+    """
+    Representa un usuario registrado en el sistema.
+
+    Atributos:
+        id (int): Identificador primario del usuario.
+        email (str): Correo electrónico único del usuario.
+        hashed_password (str): Contraseña almacenada de forma segura (hash).
+        is_active (bool): Indica si el usuario está activo.
+        created_at (datetime): Fecha de creación del usuario.
+        updated_at (datetime): Fecha de última actualización del usuario.
+        reviews (List[Review]): Lista de reseñas realizadas por el usuario.
+    """
     __tablename__ = "users"
 
     id = Column(Integer, primary_key=True)
-    # Email como identificador único y obligatorio
     email = Column(String(255), unique=True, index=True, nullable=False)
-    # IMPORTANTE: Aquí guardaremos el HASH de la contraseña, no la contraseña real.
     hashed_password = Column(String(255), nullable=False)
-    # Para poder activar/desactivar usuarios
     is_active = Column(Boolean, default=True, nullable=False)
-    # Fecha de creación automática en la BD (con zona horaria)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-    # Fecha de actualización automática en la BD (opcional, pero útil)
     updated_at = Column(DateTime(timezone=True), default=func.now(), onupdate=func.now(), nullable=False)
 
-    # --- Relación con Review ---
-    # Un usuario puede tener muchas reseñas.
-    # back_populates crea la relación bidireccional con el modelo Review.
-    # cascade="all, delete-orphan": Si se borra un usuario, se borran sus reseñas.
-    reviews = relationship("Review", back_populates="user", cascade="all, delete-orphan")
+    reviews = relationship(
+        "Review",
+        back_populates="user",
+        cascade="all, delete-orphan"
+    )
 
-    def __repr__(self):
+    def __repr__(self) -> str:
+        """
+        Representación legible del objeto User para depuración.
+
+        Returns:
+            str: Cadena representando el usuario.
+        """
         return f"<User(id={self.id}, email='{self.email}')>"
