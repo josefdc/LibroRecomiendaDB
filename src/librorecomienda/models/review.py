@@ -28,9 +28,11 @@ class Review(Base):
     book = relationship("Book", back_populates="reviews")
 
     __table_args__ = (
+        # Ensure rating is between 1 and 5
         CheckConstraint('rating >= 1 AND rating <= 5', name='review_rating_check'),
-        # Consider adding a unique constraint for user_id and book_id if a user can only review a book once
-        # UniqueConstraint('user_id', 'book_id', name='uq_user_book_review')
+        # Ensure a user can review a specific book only once
+        UniqueConstraint('user_id', 'book_id', name='uq_user_book_review'),
+        # Add other table-level constraints here if needed
     )
 
     def __repr__(self):

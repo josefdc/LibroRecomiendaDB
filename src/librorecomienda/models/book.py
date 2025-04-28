@@ -16,7 +16,8 @@ class Book(Base):
     isbn = Column(String(20), unique=True, index=True, nullable=True)
 
     # Relación con Reviews (un libro puede tener muchas reseñas)
-    reviews = relationship("Review", back_populates="book")
+    # Add cascade option
+    reviews = relationship("Review", back_populates="book", cascade="all, delete-orphan")
 
     def __repr__(self):
          return f"<Book(id={self.id}, title='{self.title[:30]}...', isbn='{self.isbn}'>"
