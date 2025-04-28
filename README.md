@@ -1,10 +1,9 @@
-# LibroRecomienda 📚🤖
+# LibroRecomienda: Sistema de Recomendación de Libros con IA
 
-[![Python Version](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](/LICENSE)
 
-**Proyecto Final - Bases De Datos**
-**Autor:** Jose Felipe Duarte
-**Fecha:** April 27, 2025
+**Autor:** Jose Flores
+**Fecha:** April 28, 2025
 
 ---
 
@@ -152,10 +151,10 @@ Sigue estos pasos para poner en marcha el proyecto localmente:
    * `uv` instalado globalmente (`pip install uv` o sigue las [instrucciones oficiales](https://github.com/astral-sh/uv)).
    * Git.
 
-2. **Clonar el Repositorio:**
+2. **Clonar el Repositorio**
 
    ```bash
-   git clone https://github.com/josefdc/LibroRecomiendaDB
+   git clone https://github.com/josefdc/LibroRecomienda.git
    cd LibroRecomienda
    ```
 
@@ -243,6 +242,12 @@ Sigue estos pasos para poner en marcha el proyecto localmente:
 
 ---
 
+## Contribuciones
+
+Las contribuciones son bienvenidas. Por favor, lee nuestras [Directrices de Contribución](CONTRIBUTING.md) y nuestro [Código de Conducta](CODE_OF_CONDUCT.md).
+
+---
+
 ## Licencia
 
-Este proyecto se distribuye bajo la licencia  Ver el archivo `LICENSE` para más detalles 
+Este proyecto se distribuye bajo la licencia [MIT](LICENSE). Ver el archivo `LICENSE` para más detalles.
