@@ -1,6 +1,7 @@
 # src/librorecomienda/core/config.py
 import os
-from pydantic_settings import BaseSettings
+# Import SettingsConfigDict
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from dotenv import load_dotenv
 
 load_dotenv() # Carga las variables de entorno desde .env
@@ -18,8 +19,7 @@ class Settings(BaseSettings):
     def list_admin_emails(self) -> list[str]:
         return [email.strip() for email in self.ADMIN_EMAILS.split(',') if email.strip()]
 
-    class Config:
-        env_file = ".env"
-        extra = "ignore" # Ignorar variables extra en .env
+    # Updated configuration using model_config
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
 settings = Settings()

@@ -1,5 +1,5 @@
 # src/librorecomienda/schemas/user.py
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, ConfigDict # Import ConfigDict
 
 # Schema para recibir datos al crear usuario
 class UserCreate(BaseModel):
@@ -13,5 +13,5 @@ class UserSchema(BaseModel):
     is_active: bool
     # Podrías añadir created_at si quieres mostrarlo
 
-    class Config:
-        from_attributes = True # Permite crear desde el objeto ORM
+    # Updated configuration
+    model_config = ConfigDict(from_attributes=True)

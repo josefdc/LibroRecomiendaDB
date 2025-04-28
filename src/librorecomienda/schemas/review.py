@@ -1,5 +1,5 @@
 #LibroRecomienda/src/librorecomienda/schemas/review.py
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict # Import ConfigDict
 import datetime
 
 class ReviewBase(BaseModel):
@@ -17,5 +17,5 @@ class ReviewSchema(ReviewBase):
     # Podrías añadir el email del usuario aquí si haces join en el CRUD
     # user_email: str | None = None
 
-    class Config:
-        from_attributes = True
+    # Updated configuration
+    model_config = ConfigDict(from_attributes=True)

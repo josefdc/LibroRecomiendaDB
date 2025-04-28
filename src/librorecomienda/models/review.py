@@ -37,5 +37,5 @@ class Review(Base):
 
     def __repr__(self):
         # Actualizar si quieres indicar si está borrada
-        deleted_status = "[DELETED]" if self.is_deleted else ""
-        return f"<Review(id={self.id}, book_id={self.book_id}, user_id={self.user_id}, rating={self.rating}) {deleted_status}>"
+        deleted_status = " [DELETED]" if self.is_deleted else ""
+        return f"<Review(id={self.id}, book_id={self.book_id}, user_id={self.user_id}, rating={self.rating}){deleted_status}>"

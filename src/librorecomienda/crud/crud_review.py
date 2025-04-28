@@ -40,7 +40,7 @@ def get_reviews_for_book_with_user(db: Session, book_id: int, limit: int = 20) -
 
 def get_review_by_id(db: Session, review_id: int) -> Review | None:
      """Obtiene una reseña específica por su ID (incluyendo borradas lógicamente)."""
-     return db.query(Review).filter(Review.id == review_id).first()
+     return db.get(Review, review_id)
 
 
 def soft_delete_review(db: Session, review_id: int, requesting_user_id: int) -> bool:
