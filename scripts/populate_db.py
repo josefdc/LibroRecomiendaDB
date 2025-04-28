@@ -23,10 +23,7 @@ from typing import Any, Dict, List, Optional
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-# --- Añadir 'src' al PYTHONPATH (si es necesario) ---
-# ... (código existente para añadir src al path) ...
 
-# --- Importaciones del Proyecto ---
 try:
     from sqlalchemy.orm import Session
     from librorecomienda.db.session import SessionLocal
@@ -157,7 +154,10 @@ def populate_books(db: Session) -> None:
 
 if __name__ == "__main__":
     db_session: Optional[Session] = None
-    try:
+    try:# --- Añadir 'src' al PYTHONPATH (si es necesario) ---
+# ... (código existente para añadir src al path) ...
+
+# --- Importaciones del Proyecto ---
         logger.info("Abriendo sesión de base de datos para poblar...")
         db_session = SessionLocal()
         populate_books(db_session)

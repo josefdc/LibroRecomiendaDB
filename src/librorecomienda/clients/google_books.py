@@ -58,5 +58,3 @@ async def search_books_google_api(query: str, max_results: int = 10) -> Optional
     except Exception as e:
         logger.exception(f"Error inesperado al buscar en Google Books: {e}")
         return None
-
-# Nota: Asegúrate de que src/librorecomienda/clients/__init__.py exista (puede estar vacío).
