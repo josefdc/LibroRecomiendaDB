@@ -1,10 +1,25 @@
-# scripts/populate_db.py
+"""
+Script para poblar la base de datos de LibroRecomienda con libros obtenidos de la API de Google Books.
+
+Este módulo realiza búsquedas temáticas en Google Books y almacena los resultados
+en la base de datos, evitando duplicados por título/autor o ISBN. Está pensado
+para poblar entornos de desarrollo o pruebas con libros realistas y variados.
+
+Uso:
+    Ejecutar directamente este script para poblar la base de datos con libros.
+    Requiere que la base de datos y los modelos estén correctamente configurados.
+
+Nota:
+    - Solo añade libros si no existen previamente por título/autor o ISBN.
+    - Utiliza búsquedas temáticas predefinidas.
+"""
+
 import logging
 import sys
 import os
-import asyncio # Import asyncio
+import asyncio
+from typing import Any, Dict, List, Optional
 
-# --- Configuración del Logging ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
@@ -16,9 +31,7 @@ try:
     from sqlalchemy.orm import Session
     from librorecomienda.db.session import SessionLocal
     from librorecomienda.models.book import Book
-    # --- Cambiar esta línea ---
     from librorecomienda.clients.google_books import search_books_google_api
-    # -------------------------
     from librorecomienda.core.config import settings
     MODELS_LOADED = True
     logger.info("Módulos del proyecto importados correctamente.")
@@ -28,8 +41,7 @@ except ImportError as e:
     MODELS_LOADED = False
     sys.exit(1)
 
-# --- Constantes ---
-SEARCH_QUERIES = [
+SEARCH_QUERIES: List[str] = [
     "python programming",
     "data science",
     "machine learning",
@@ -41,28 +53,36 @@ SEARCH_QUERIES = [
     "historical fiction",
     "biography"
 ]
-MAX_RESULTS_PER_QUERY = 10 # Número de libros a intentar obtener por cada búsqueda
+MAX_RESULTS_PER_QUERY: int = 10
 
-# --- Función para Poblar Libros ---
-def populate_books(db: Session):
+def populate_books(db: Session) -> None:
+    """
+    Busca libros usando la API de Google Books y los añade a la base de datos.
+
+    Args:
+        db (Session): Sesión SQLAlchemy activa.
+
+    Returns:
+        None
+
+    Raises:
+        Exception: Si ocurre un error crítico durante la población.
+    """
     if not MODELS_LOADED:
         logger.error("No se pudieron cargar los módulos. Abortando población.")
         return
 
     logger.info("--- Iniciando Población de Libros --- ")
-    # No necesitamos instanciar un cliente
-    total_books_added = 0
+    total_books_added: int = 0
 
     for query in SEARCH_QUERIES:
         logger.info(f"Buscando libros para: '{query}'...")
         try:
-            # --- Llamar a la función async usando asyncio.run() ---
-            google_books_data = asyncio.run(
+            google_books_data: Optional[List[Dict[str, Any]]] = asyncio.run(
                 search_books_google_api(query, max_results=MAX_RESULTS_PER_QUERY)
             )
-            # -----------------------------------------------------
 
-            if google_books_data is None: # La función devuelve None en caso de error
+            if google_books_data is None:
                 logger.error(f"Error al buscar libros para '{query}'. Ver logs anteriores.")
                 continue
             if not google_books_data:
@@ -72,20 +92,19 @@ def populate_books(db: Session):
             logger.info(f"Se encontraron {len(google_books_data)} resultados para '{query}'. Procesando...")
 
             for item in google_books_data:
-                volume_info = item.get('volumeInfo', {})
+                volume_info: Dict[str, Any] = item.get('volumeInfo', {})
 
-                title = volume_info.get('title')
-                authors = volume_info.get('authors', [])
-                author_str = ", ".join(authors) if authors else None
-                description = volume_info.get('description')
-                genre = volume_info.get('categories', [None])[0] # Tomar la primera categoría como género
-                image_links = volume_info.get('imageLinks', {})
-                cover_url = image_links.get('thumbnail') or image_links.get('smallThumbnail')
+                title: Optional[str] = volume_info.get('title')
+                authors: List[str] = volume_info.get('authors', [])
+                author_str: Optional[str] = ", ".join(authors) if authors else None
+                description: Optional[str] = volume_info.get('description')
+                genre: Optional[str] = volume_info.get('categories', [None])[0]
+                image_links: Dict[str, Any] = volume_info.get('imageLinks', {})
+                cover_url: Optional[str] = image_links.get('thumbnail') or image_links.get('smallThumbnail')
 
-                # --- Extraer ISBN --- 
-                industry_identifiers = volume_info.get('industryIdentifiers', [])
-                isbn_13 = None
-                isbn_10 = None
+                industry_identifiers: List[Dict[str, Any]] = volume_info.get('industryIdentifiers', [])
+                isbn_13: Optional[str] = None
+                isbn_10: Optional[str] = None
                 for identifier in industry_identifiers:
                     id_type = identifier.get('type')
                     id_value = identifier.get('identifier')
@@ -94,26 +113,22 @@ def populate_books(db: Session):
                     elif id_type == 'ISBN_10':
                         isbn_10 = id_value
 
-                # Priorizamos ISBN_13 si existe, si no, usamos ISBN_10
-                book_isbn = isbn_13 if isbn_13 else isbn_10
-                # Truncar si excede el límite de la BD (String(20))
+                book_isbn: Optional[str] = isbn_13 if isbn_13 else isbn_10
                 book_isbn = book_isbn[:20] if book_isbn else None
-                # --------------------
 
                 if not title:
                     logger.warning("Libro sin título encontrado, saltando.")
                     continue
 
-                # Evitar duplicados
                 exists = db.query(Book).filter(Book.title == title, Book.author == author_str).first()
                 if exists:
                     logger.info(f"Libro ya existe (título/autor): '{title}'. Saltando.")
                     continue
                 if book_isbn:
-                     exists_isbn = db.query(Book).filter(Book.isbn == book_isbn).first()
-                     if exists_isbn:
-                           logger.info(f"Libro ya existe (ISBN): '{title}' [{book_isbn}]. Saltando.")
-                           continue
+                    exists_isbn = db.query(Book).filter(Book.isbn == book_isbn).first()
+                    if exists_isbn:
+                        logger.info(f"Libro ya existe (ISBN): '{title}' [{book_isbn}]. Saltando.")
+                        continue
 
                 new_book = Book(
                     title=title[:255],
@@ -127,7 +142,6 @@ def populate_books(db: Session):
                 total_books_added += 1
                 logger.info(f"  Añadido: '{new_book.title}' (ISBN: {new_book.isbn or 'N/A'})")
 
-            # Hacer commit por lotes
             try:
                 db.commit()
                 logger.info(f"Commit realizado para libros de '{query}'.")
@@ -141,9 +155,8 @@ def populate_books(db: Session):
 
     logger.info(f"--- Población de Libros Finalizada: {total_books_added} libros añadidos en total. ---")
 
-# --- Punto de Entrada --- 
 if __name__ == "__main__":
-    db_session: Session | None = None
+    db_session: Optional[Session] = None
     try:
         logger.info("Abriendo sesión de base de datos para poblar...")
         db_session = SessionLocal()
