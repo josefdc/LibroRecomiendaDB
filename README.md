@@ -156,7 +156,7 @@ Sigue estos pasos para poner en marcha el proyecto localmente:
 2. **Clonar el Repositorio:**
 
    ```bash
-   git clone <URL_DEL_REPOSITORIO> # Reemplaza con la URL de tu repo
+[   git clone https://github.com/josefdc/LibroRecomiendaDB
    cd LibroRecomienda
    ```
 
@@ -246,4 +246,4 @@ Sigue estos pasos para poner en marcha el proyecto localmente:
 
 ## Licencia
 
-Este proyecto se distribuye bajo la licencia [Specify License - e.g., MIT]. Ver el archivo `LICENSE` para más detalles (si aplica).
+Este proyecto se distribuye bajo la licencia  Ver el archivo `LICENSE` para más detalles 
