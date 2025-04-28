@@ -15,7 +15,8 @@ LibroRecomienda es una aplicación web interactiva diseñada como proyecto final
 
 El proyecto demuestra la integración de tecnologías modernas como Streamlit para la interfaz, SQLAlchemy y Alembic para la gestión de la base de datos (compatible con PostgreSQL y SQLite), y Langchain/LangGraph para la orquestación del agente conversacional.
 
-*(Opcional: Añade una captura de pantalla principal de la app aquí)*
+![Screenshot from 2025-04-27 21-40-19](https://github.com/user-attachments/assets/91f35090-d280-4768-bdc3-edc46423e341)
+
 
 ---
 
@@ -85,8 +86,7 @@ A continuación se muestra el modelo conceptual de la base de datos utilizada en
   * Un `Book` puede tener muchas `Review`s (1-N).
   * Una `Review` pertenece exactamente a un `User` y a un `Book`.
 
-*(Opcional: Si generaste un diagrama ERD visual, crea una carpeta `docs/` en la raíz, guarda la imagen como `erd.png` y descomenta la siguiente línea):*
-<!-- ![Diagrama Entidad-Relación](docs/erd.png) -->
+![graphviz](https://github.com/user-attachments/assets/5691b998-786f-485a-804c-e4e49b74c20e)
 
 ---
 
