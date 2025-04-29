@@ -2,7 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](/LICENSE)
 
-**Autor:** Jose Flores
+**Autor:** Jose Felipe Duarte 
 **Fecha:** April 28, 2025
 
 ---
